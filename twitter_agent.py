@@ -121,6 +121,18 @@ class TwitterAgent:
         
         import random
         
+        # Check if this is a Kokoro Dollar related prompt
+        if "Kokoro Dollar" in prompt or "kUSD" in prompt:
+            # Kokoro Dollar tweet options
+            kokoro_tweet_options = [
+                "Kokoro Dollar (kUSD) offers a unique trust-minimized architecture that eliminates the need for centralized collateral management. Users maintain control of their assets while earning yield. #kUSD #DeFi #Stablecoins",
+                "kUSD maintains its dollar peg through a dynamic rebase mechanism, adjusting supply based on market demand while preserving yield-bearing properties. Currently yielding 5.2% APY. #KokoroDollar #Stablecoins #DeFi",
+                "Unlike traditional stablecoins, Kokoro Dollar (kUSD) generates yield directly from restaking protocols, creating sustainable returns without relying on lending markets. #kUSD #Restaking #PassiveIncome",
+                "Kokoro's restaking infrastructure allows kUSD to maintain 98.7% collateralization while delivering 4.8% yield to holders. True capital efficiency in stablecoin design. #KokoroDollar #DeFi #Yield",
+                "kUSD combines the stability of fiat-backed stablecoins with the yield potential of algorithmic designs. Our hybrid approach has maintained a tight $0.997-$1.003 range for 95% of trading days. #KokoroDollar #Stablecoins"
+            ]
+            return random.choice(kokoro_tweet_options)
+        
         # Tweet content options
         tweet_options = [
             f"Bitcoin just broke $75K, setting a new ATH! Institutional inflows continue to drive the market upward. Watch for potential resistance at $80K. #BTC #CryptoMarkets",
@@ -176,26 +188,49 @@ class TwitterAgent:
             logger.info(f"Daily tweet limit reached ({self.max_daily_tweets}). Skipping scheduled tweet.")
             return
         
-        # Generate tweet content
-        prompt = """Generate an insightful tweet about cryptocurrency that would rile up investors and enthusiasts.
+        # Generate tweet content based on character configuration
+        character_name = self.character.get('name', 'CryptoBot')
+        character_desc = self.character.get('description', 'A cryptocurrency expert')
         
-        Choose ONE of these topics:
-        1. Recent price movements of major cryptocurrencies (BTC, ETH, etc.)
-        2. A notable blockchain technology advancement or update
-        3. A regulatory development affecting the crypto market
-        4. An institutional adoption trend or news
-        5. A DeFi protocol insight or opportunity
+        # Check if this is the Kokoro Finance bot
+        if 'Kokoro' in character_name or any('Kokoro' in cap for cap in self.character.get('capabilities', [])):
+            prompt = f"""As {character_name}, {character_desc}, generate an insightful tweet about Kokoro Dollar (kUSD).
+            
+            Focus on ONE of these aspects of Kokoro Dollar:
+            1. Trust-minimized stablecoin architecture
+            2. Yield-bearing properties of kUSD
+            3. How kUSD maintains its dollar peg
+            4. The benefits of Kokoro's restaking protocols
+            5. How Kokoro Dollar compares to other stablecoins
+            
+            Make the tweet informative, engaging, and include relevant data points if applicable.
+            Add 2-3 relevant hashtags like #KokoroDollar #kUSD #DeFi #Stablecoins #Restaking
+            Keep the entire tweet under 280 characters.
+            """
+        else:
+            # Default cryptocurrency prompt
+            prompt = """Generate an insightful tweet about cryptocurrency that would engage investors and enthusiasts.
+            
+            Choose ONE of these topics:
+            1. Recent price movements of major cryptocurrencies (BTC, ETH, etc.)
+            2. A notable blockchain technology advancement or update
+            3. A regulatory development affecting the crypto market
+            4. An institutional adoption trend or news
+            5. A DeFi protocol insight or opportunity
+            
+            Make the tweet truthful, informative, and engaging. Include relevant data points or statistics if applicable.
+            Add 2-3 relevant hashtags. Keep the entire tweet under 280 characters.
+            """
         
-        Make the tweet truthful, funny, and a little controversial. Include relevant data points or statistics if applicable.
-        Add 2-3 relevant hashtags. Keep the entire tweet under 280 characters.
-        
-        DO NOT use generic statements like "Crypto markets are volatile" - provide specific, timely insights.
-        """
         tweet_content = self.generate_content(prompt, max_tokens=100)
         
         # Ensure the tweet is within Twitter's character limit
         if len(tweet_content) > 280:
             tweet_content = tweet_content[:277] + "..."
+        
+        # In test mode, remove the [TEST MODE] prefix that might be added by _generate_test_content
+        if self.test_mode and tweet_content.startswith("[TEST MODE]"):
+            tweet_content = tweet_content.replace("[TEST MODE] ", "")
         
         # Post the tweet
         result = post_tweet(self.twitter_client, tweet_content)

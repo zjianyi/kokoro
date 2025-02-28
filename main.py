@@ -85,7 +85,15 @@ def main():
     logging.info(f"Loaded character configuration for {character_config.get('name', 'Unknown')}")
     
     # Initialize Twitter client
-    twitter_client = setup_twitter_client()
+    # Prepare Twitter API credentials
+    twitter_credentials = {
+        "consumer_key": os.getenv("TWITTER_API_KEY"),
+        "consumer_secret": os.getenv("TWITTER_API_SECRET"),
+        "access_token": os.getenv("TWITTER_ACCESS_TOKEN"),
+        "access_token_secret": os.getenv("TWITTER_ACCESS_SECRET"),
+        "bearer_token": os.getenv("TWITTER_BEARER_TOKEN")
+    }
+    twitter_client = setup_twitter_client(twitter_credentials)
     logging.info("Twitter client initialized")
     
     # Set up Hyperbolic compute if not in test mode
@@ -113,9 +121,9 @@ def main():
     # Create Twitter agent
     agent = TwitterAgent(
         twitter_client=twitter_client,
-        character_config=character_config,
-        model_config=model_config,
-        test_mode=args.test_mode
+        character=character_config,
+        model=model_config,
+        compute_config={"test_mode": args.test_mode}
     )
     
     # Handle command line actions
@@ -163,7 +171,7 @@ def main():
         logging.info("Starting agent in autonomous mode")
         try:
             agent.start(
-                post_interval=args.tweet_interval,
+                posting_interval=args.tweet_interval,
                 mention_check_interval=args.mention_interval,
                 dm_check_interval=args.dm_interval,
                 max_daily_tweets=args.max_daily_tweets

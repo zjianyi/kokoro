@@ -270,90 +270,72 @@ class TwitterAgent:
             logger.error(f"Error handling mentions: {str(e)}")
     
     def handle_direct_messages(self):
-        """Handle direct messages and respond to them."""
+        """Check for and respond to direct messages."""
         try:
-            # Get recent direct messages
-            result = get_direct_messages(
-                self.twitter_client,
-                since_id=self.last_dm_id
-            )
+            # Get direct messages
+            response = get_direct_messages(self.twitter_client, since_id=self.last_dm_id)
             
-            if not result["success"]:
-                logger.error(f"Failed to retrieve direct messages: {result.get('error')}")
+            # Check if DMs are empty due to API limitations
+            if isinstance(response, dict) and response.get("success", False) and len(response.get("direct_messages", [])) == 0:
+                # This could be due to API limitations or no new DMs
+                logger.info("No new direct messages found or DM access is limited by Twitter API")
                 return
             
-            dms = result.get("direct_messages", [])
-            if not dms:
+            # Process direct messages in reverse order (oldest first)
+            dms = response.get("direct_messages", []) if isinstance(response, dict) else response
+            
+            if not dms or len(dms) == 0:
                 logger.info("No new direct messages found")
                 return
             
-            # Update the last DM ID
-            self.last_dm_id = dms[0].id
+            logger.info(f"Found {len(dms)} new direct messages")
             
-            # Process DMs in reverse order (oldest first)
             for dm in reversed(dms):
-                # Skip messages sent by the bot itself
-                if hasattr(dm, 'sender_id'):
-                    sender_id = dm.sender_id
-                elif hasattr(dm, 'message_create'):
+                # Extract DM data based on the structure
+                if hasattr(dm, 'message_create'):
+                    # API v1.1 structure
                     sender_id = dm.message_create['sender_id']
+                    recipient_id = dm.message_create['target']['recipient_id']
+                    text = dm.message_create['message_data']['text']
+                    dm_id = dm.id
                 else:
-                    logger.warning(f"Could not determine sender for DM: {dm.id}")
-                    continue
-                
-                # Get the authenticated user's ID
-                user_id = None
-                if self.twitter_client["v2_client"]:
-                    user_id = self.twitter_client["v2_client"].get_me().data.id
-                elif self.twitter_client["v1_api"]:
-                    user_id = str(self.twitter_client["v1_api"].verify_credentials().id)
+                    # Alternative structure
+                    sender_id = dm.sender_id
+                    recipient_id = getattr(dm, 'recipient_id', None)
+                    text = dm.text
+                    dm_id = dm.id
                 
                 # Skip if the message was sent by the bot itself
-                if user_id and str(sender_id) == str(user_id):
+                if str(sender_id) == str(self.twitter_client["v2_client"].get_me().data.id):
                     continue
                 
-                # Extract the message text
-                if hasattr(dm, 'text'):
-                    message_text = dm.text
-                elif hasattr(dm, 'message_create'):
-                    message_text = dm.message_create['message_data']['text']
-                else:
-                    logger.warning(f"Could not extract text from DM: {dm.id}")
-                    continue
+                # Update last DM ID
+                if dm_id and (not self.last_dm_id or dm_id > self.last_dm_id):
+                    self.last_dm_id = dm_id
                 
-                # Generate a response
-                prompt = f"""Someone sent you a direct message: '{message_text}'
+                # Generate response
+                prompt = f"Someone sent you a direct message: '{text}'"
+                response_text = self.generate_content(prompt)
                 
-                Respond with a personalized, helpful reply about cryptocurrency or blockchain technology that directly addresses their message.
-                
-                Your response should:
-                1. Be knowledgeable and accurate
-                2. Provide specific, actionable information
-                3. Include relevant facts, data points, or resources when appropriate
-                4. Be friendly, conversational, and engaging
-                5. Offer to help further if they have more questions
-                
-                Since this is a private message, you can provide more detailed information than in a public tweet.
-                If they're asking a question, answer it thoroughly. If they're sharing thoughts, engage thoughtfully with their perspective.
-                """
-                response_content = self.generate_content(prompt, max_tokens=500)
-                
-                # Send the response
-                response_result = send_direct_message(
-                    self.twitter_client,
-                    recipient_id=sender_id,
-                    text=response_content
-                )
-                
-                if response_result["success"]:
-                    logger.info(f"Replied to DM from {sender_id}: {response_content[:50]}...")
-                else:
-                    logger.error(f"Failed to reply to DM from {sender_id}: {response_result.get('error')}")
-                
-                # Add a small delay to avoid rate limits
-                time.sleep(2)
+                # Send response
+                try:
+                    send_direct_message(self.twitter_client, sender_id, response_text)
+                    logger.info(f"Sent response to DM {dm_id}")
+                except Exception as e:
+                    if "Cannot send DMs" in str(e) and "403 Forbidden" in str(e):
+                        logger.warning("DM functionality is not available with current API access level")
+                        # Disable DM checking if we don't have permission
+                        self.dm_checking = False
+                        break
+                    else:
+                        logger.error(f"Failed to send response to DM {dm_id}: {str(e)}")
         except Exception as e:
-            logger.error(f"Error handling direct messages: {str(e)}")
+            if "Failed to get direct messages: 403 Forbidden" in str(e) and "access to a subset of X API" in str(e):
+                logger.warning("DM functionality is not available with current API access level")
+                # Disable DM checking if we don't have permission
+                self.dm_checking = False
+            else:
+                logger.error(f"Failed to retrieve direct messages: {str(e)}")
     
     def posting_loop(self):
         """Main loop for posting scheduled tweets."""
@@ -388,17 +370,19 @@ class TwitterAgent:
             time.sleep(self.mention_check_interval)
     
     def dm_loop(self):
-        """Main loop for checking and responding to direct messages."""
+        """Continuously check for new direct messages."""
         logger.info("Starting direct message checking loop")
         
-        while self.running:
+        while self.running and self.dm_checking:
             try:
                 self.handle_direct_messages()
             except Exception as e:
                 logger.error(f"Error in DM loop: {str(e)}")
             
-            # Sleep until the next DM check interval
+            # Sleep for the specified interval
             time.sleep(self.dm_check_interval)
+        
+        logger.info("Direct message checking loop stopped")
     
     def start(self, mode: str = "autonomous", posting_interval: int = 7200,
              mention_check_interval: int = 300, dm_check_interval: int = 300,
@@ -422,6 +406,7 @@ class TwitterAgent:
         self.mention_check_interval = mention_check_interval
         self.dm_check_interval = dm_check_interval
         self.max_daily_tweets = max_daily_tweets
+        self.dm_checking = True  # Flag to control DM checking
         
         logger.info(f"Starting Twitter agent in {mode} mode")
         logger.info(f"Posting interval: {posting_interval} seconds (every {posting_interval/3600:.1f} hours)")

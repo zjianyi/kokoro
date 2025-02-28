@@ -484,6 +484,15 @@ def get_direct_messages(client, since_id: Optional[str] = None,
             except Exception as e1:
                 logger.warning(f"Failed to get direct messages via API v1.1: {str(e1)}")
                 
+                # Check if this is a permissions error
+                if "403 Forbidden" in str(e1) and "access to a subset of X API" in str(e1):
+                    logger.warning("DM access requires Twitter API Premium access. This feature will be disabled.")
+                    # Return empty list instead of trying alternative methods that will also fail
+                    return {
+                        "success": True,
+                        "direct_messages": []
+                    }
+                
                 # Try alternative method for DMs
                 try:
                     logger.info("Attempting to get direct messages using alternative method")
@@ -536,7 +545,7 @@ def send_direct_message(client, recipient_id: str, text: str) -> Dict[str, Any]:
     try:
         # Try using v1.1 API (v2 API doesn't have DM endpoints yet)
         if client["v1_api"] is not None:
-            logger.info("Attempting to send direct message using Twitter API v1.1")
+            logger.info(f"Attempting to send direct message to user {recipient_id}")
             try:
                 # Send direct message
                 dm = client["v1_api"].send_direct_message(
@@ -552,6 +561,11 @@ def send_direct_message(client, recipient_id: str, text: str) -> Dict[str, Any]:
                 }
             except Exception as e1:
                 logger.warning(f"Failed to send direct message via API v1.1: {str(e1)}")
+                
+                # Check if this is a permissions error
+                if "403 Forbidden" in str(e1) and "access to a subset of X API" in str(e1):
+                    logger.warning("DM access requires Twitter API Premium access. This feature will be disabled.")
+                    raise Exception(f"Cannot send DMs: {str(e1)}")
                 
                 # Try alternative method for sending DMs
                 try:

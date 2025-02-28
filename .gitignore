@@ -24,6 +24,10 @@ var/
 venv/
 ENV/
 env/
+hyperbolic-agent-env/
+# Explicitly ignore all __pycache__ files in venv
+venv/**/__pycache__/
+venv/**/*.py[cod]
 
 # IDE files
 .idea/
@@ -37,7 +41,7 @@ logs/
 
 # Environment variables
 .env
-.env.example
+# .env.example - Allow this file to be committed
 
 # OS specific files
 .DS_Store
